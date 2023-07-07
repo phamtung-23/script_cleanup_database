@@ -213,4 +213,4 @@ bin/cli mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" -h"${MYSQL_HOST}" "${M
 # recheck db docker container size 
 # conclusion
 
-# bash -c "$(curl -fsSL https://raw.githubusercontent.com/thomasvan/webide-hotfixes/main/reduce_mysql_size.sh)"
+# bash -c "$(curl -fsSL https://raw.githubusercontent.com/phamtung-23/script_cleanup_database/main/reduce-mysql-size.sh)"
