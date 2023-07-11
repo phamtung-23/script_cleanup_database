@@ -4,7 +4,28 @@
 # @license MIT <https://opensource.org/licenses/MIT>
 
 # sed -i "s/'--log_bin_trust_function_creators=1'/'--log_bin_trust_function_creators=1', '--innodb_file_per_table=1'/" docker-compose.yml 
+# sed -i "s/'--log_bin_trust_function_creators=1'/'--log_bin_trust_function_creators=1', '--binlog_expire_logs_seconds=3600'/" docker-compose.yml 
+# set innodb_lock_wait_timeout=3600;
 
+# ========= set innodb_lock_wait_timeout ===========
+source env/db.env
+bin/cli mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -h"${MYSQL_HOST}" "${MYSQL_DATABASE}" -e "set global innodb_lock_wait_timeout=3600;"
+# show variables where variable_name in("innodb_lock_wait_timeout");
+echo "set innodb_lock_wait_timeout=3600"
+
+
+# ========= check binlog sql =======================
+# source env/db.env
+# bin/cli mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -h"${MYSQL_HOST}" "${MYSQL_DATABASE}"
+# show binary logs;
+# PURGE BINARY LOGS TO 'mysql-bin.000003';
+# show variables where variable_name in("expire_logs_days");
+# show variables where variable_name in("binlog_expire_logs_seconds");
+# set global binlog_expire_logs_seconds=3600;
+
+
+#========== rebuild db ============================
+# bin/start db --build
 # bin/start --build --force_recreate
 
 
@@ -23,12 +44,14 @@ get_query_command(){
   else
     row_limit=$3
   fi
-  result="DELETE record FROM $table_name AS record 
-              LEFT JOIN 
-                (SELECT $id FROM $table_name 
-                ORDER BY $id DESC LIMIT $row_limit) AS record2 
-              ON record.$id = record2.$id 
-            WHERE record2.$id IS NULL;"
+
+  if [ "$row_limit" = "empty" ]; then
+    result="TRUNCATE TABLE $table_name;"
+  else
+    result="SELECT @minEntityIdM2:=MIN($id) FROM (SELECT $id FROM $table_name ORDER BY $id DESC LIMIT 0,$row_limit) as q;
+            DELETE FROM $table_name
+            WHERE $id < @minEntityIdM2;"
+  fi
   echo "$result"
 }
 
@@ -44,7 +67,7 @@ delete_records_table() {
   fi
  
   query=$(get_query_command "$table_name" "$id" "$row_limit")
-
+  # echo $query
   # Call execute_sql_query function
   execute_sql_query "$query" "$table_name"
 }
@@ -105,12 +128,16 @@ execute_sql_query() {
   local query="SET FOREIGN_KEY_CHECKS = 1; $1"
   local table_name=$2
   # Execute query
-  echo "$query"
-  echo "########################################"
-  # result=$(bin/mysql -e "$query" 2>&1)
-
+  result=$(bin/mysql -e "$query")
+  # echo $query
   if [ $? -eq 0 ]; then
-    echo "Cleanup $table_name successful!"
+    result_final=$(bin/mysql -e "OPTIMIZE TABLE $table_name;")
+    if [ $? -eq 0 ]; then
+      echo "Cleanup and optimize $table_name tabel successful!"
+    else
+      echo "Cleanup failed. Error message:"
+      echo "$result_final"
+    fi
   else
     echo "Cleanup failed. Error message:"
     echo "$result"
@@ -192,13 +219,17 @@ else
   done
 fi
 SCRIPT
+echo "Create 'bin/dbcleanup' file successfully!!!"
 
 chmod u+x bin/dbcleanup
+echo "chmod 'bin/dbcleanup' file successfully!!!"
 
 # bin/mysqldump | gzip -9 -c > ~/backups/db.sql.gz
 # 
+echo "Data backup in progress..."
 source env/db.env
 bin/cli mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" -h"${MYSQL_HOST}" "${MYSQL_DATABASE}" --no-tablespaces --routines --force --triggers --single-transaction --opt --skip-lock-tables | sed -e 's/DEFINER[ ]*=[ ]*[^*]*\*/\*/' | gzip -9 -c > ~/backups/db.sql.gz
+echo "Data has been saved to the backups folder successfully!!!"
 
 # restore
 # source env/db.env
